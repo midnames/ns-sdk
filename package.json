@@ -1,0 +1,97 @@
+{
+  "name": "@midnames/sdk",
+  "version": "0.1.0",
+  "description": "SDK for Midnames - Single Contract DNS",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "import": "./dist/provider.js",
+      "default": "./dist/provider.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js",
+      "default": "./dist/core.js"
+    },
+    "./react/DomainProfileWidget": {
+      "types": "./dist/react/DomainProfileWidget.d.ts",
+      "import": "./dist/react/DomainProfileWidget.js",
+      "default": "./dist/react/DomainProfileWidget.js"
+    },
+    "./react/HolographicCard": {
+      "types": "./dist/react/HolographicCard.d.ts",
+      "import": "./dist/react/HolographicCard.js",
+      "default": "./dist/react/HolographicCard.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./holographic-card.css": "./dist/holographic-card.css"
+  },
+  "scripts": {
+    "compact": "compact compile +0.30.0 ns.compact src/managed",
+    "compact:skip-zk": "compact compile +0.30.0 --skip-zk ns.compact src/managed",
+    "build": "rm -rf dist && tsc --project tsconfig.build.json && cp -Rf ./src/managed ./dist/managed && cp ./ns.compact ./dist && cp ./src/styles.css ./dist/styles.css && cp ./src/holographic-card.css ./dist/holographic-card.css",
+    "typecheck": "tsc --project tsconfig.build.json --noEmit",
+    "deploy": "bun run src/test/batch-deploy.ts",
+    "resolve": "bun run resolve.ts",
+    "serve": "bun run resolve.ts --serve"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.15.0",
+    "@midnight-ntwrk/ledger-v8": "^8.0.3",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-network-id": "4.0.2",
+    "@midnight-ntwrk/wallet-sdk-address-format": "3.1.0"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-js": "2.5.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.0.2",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-types": "4.0.2",
+    "@midnight-ntwrk/wallet-sdk-abstractions": "2.0.0",
+    "@midnight-ntwrk/wallet-sdk-dust-wallet": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-facade": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-hd": "3.0.1",
+    "@midnight-ntwrk/wallet-sdk-shielded": "2.1.0",
+    "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "2.1.0",
+    "@scure/bip39": "^2.0.1",
+    "@types/ws": "^8.18.1",
+    "dotenv": "^17.3.1",
+    "pino": "^10.3.1",
+    "pino-pretty": "^13.1.3",
+    "rxjs": "^7.8.1",
+    "typescript": "^5.8.3",
+    "ws": "^8.19.0"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18",
+    "lucide-react": ">=0.400.0"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "react-dom": { "optional": true },
+    "lucide-react": { "optional": true }
+  },
+  "license": "MIT",
+  "author": "Midnames"
+}

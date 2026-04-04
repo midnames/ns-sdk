@@ -1,0 +1,318 @@
+pragma language_version 0.22;
+
+import CompactStandardLibrary;
+
+export sealed ledger ROOT_ZONE_ID: Uint<64>;
+
+export ledger last_id_int: Counter;
+
+export ledger name_to_id: Map<DomainReference, Uint<64>>;
+export ledger id_to_data: Map<Uint<64>, DomainData>;
+export ledger addr_to_domains: Map<Bytes<32>, Set<DomainReference>>;
+export ledger domain_fields: Map<Uint<64>, Map<Opaque<'string'>, Opaque<'string'>>>;
+
+export ledger TLD: Opaque<"string">;
+
+witness domainSecretKey(): Bytes<32>;
+
+export enum AddressType {
+  ContractAddr,
+  ZswapCPKAddr,
+  UnshieldedAddr
+}
+
+export { DomainData, DomainReference, Maybe }
+
+struct DomainData {
+  owner_public_key: Bytes<32>,
+  owner_address: UserAddress,
+  target: Bytes<32>,
+  target_type: AddressType,
+  default_field: Maybe<Opaque<'string'>>,
+  cost_short: Uint<128>,
+  cost_med: Uint<128>,
+  cost_long: Uint<128>,
+  coin_color: Bytes<32>,
+  buy_enabled: Boolean
+}
+
+struct DomainReference {
+  domain: Bytes<32>,
+  parent_id: Uint<64>
+}
+
+constructor(
+  tld: Opaque<'string'>,
+  target: Bytes<32>,
+  target_type: AddressType,
+  coin_color: Bytes<32>,
+  cost_short: Uint<128>,
+  cost_med: Uint<128>,
+  cost_long: Uint<128>,
+  default_field: Maybe<Opaque<'string'>>,
+  buy_enabled: Boolean,
+  owner_address: UserAddress,
+  kvs: Vector<6, Maybe<[Opaque<'string'>, Opaque<'string'>]>>
+) {
+  ROOT_ZONE_ID = 0;
+  TLD = disclose(tld);
+  last_id_int.increment(1);
+
+  const root_data = DomainData {
+    derive_public_key(),
+    disclose(owner_address),
+    disclose(target),
+    disclose(target_type),
+    disclose(default_field),
+    disclose(cost_short),
+    disclose(cost_med),
+    disclose(cost_long),
+    disclose(coin_color),
+    disclose(buy_enabled)
+  };
+  id_to_data.insert(0, disclose(root_data));
+
+  for (const kv of kvs) {
+    if (disclose(kv) != none<[Opaque<'string'>, Opaque<'string'>]>()) {
+      if (!domain_fields.member(0)) {
+        domain_fields.insert(0, default<Map<Opaque<'string'>, Opaque<'string'>>>);
+      }
+      domain_fields.lookup(0).insert(disclose(kv.value[0]), disclose(kv.value[1]));
+    }
+  }
+}
+
+// ======================
+//        Internals
+// ======================
+
+circuit get_and_inc_id(): Uint<64> {
+  const i = last_id_int.read();
+  last_id_int.increment(1);
+  return i;
+}
+
+circuit _update_domain(id: Uint<64>, data: DomainData): [] {
+  id_to_data.insert(disclose(id), disclose(data));
+}
+
+// Domain names are Bytes<32>: valid characters (lowercase letters, numbers, hyphens)
+// left-aligned with 0xFF padding.
+circuit _add_domain(owner: Bytes<32>, owner_address: UserAddress, domain: Bytes<32>, len: Uint<32>, parent_id: Uint<64>, target: Bytes<32>, target_type: AddressType, kvs: Vector<6, Maybe<[Opaque<'string'>, Opaque<'string'>]>>): [] {
+  assert(len <= 32, "len must be <= 32");
+  assert(len >= 1, "domain name cannot be empty");
+
+  const valid = verify_domain_path(domain, len);
+  assert(valid, "Invalid domain key padding");
+
+  // Look up parent's config for pricing
+  const parent = id_to_data.lookup(disclose(parent_id));
+
+  if (derive_public_key() == parent.owner_public_key) {
+    // parent owner registers for free
+  } else {
+    assert(parent.buy_enabled, "buying domains is not enabled");
+    const d_len = disclose(len);
+    if (d_len <= 3) {
+      receiveUnshielded(parent.coin_color, parent.cost_short);
+      sendUnshielded(parent.coin_color, parent.cost_short, right<ContractAddress, UserAddress>(parent.owner_address));
+    } else if (d_len == 4) {
+      receiveUnshielded(parent.coin_color, parent.cost_med);
+      sendUnshielded(parent.coin_color, parent.cost_med, right<ContractAddress, UserAddress>(parent.owner_address));
+    } else {
+      receiveUnshielded(parent.coin_color, parent.cost_long);
+      sendUnshielded(parent.coin_color, parent.cost_long, right<ContractAddress, UserAddress>(parent.owner_address));
+    }
+  }
+
+  const new_id = get_and_inc_id();
+
+  const dom_ref = DomainReference { disclose(domain), disclose(parent_id) };
+
+  assert(!name_to_id.member(dom_ref), "This (sub)domain already exists");
+
+  const d_owner = disclose(owner);
+  const data = DomainData {
+    d_owner,
+    disclose(owner_address),
+    disclose(target),
+    disclose(target_type),
+    none<Opaque<'string'>>(),
+    0,
+    0,
+    0,
+    default<Bytes<32>>,
+    false
+  };
+
+  if (!addr_to_domains.member(d_owner)) {
+    addr_to_domains.insert(d_owner, default<Set<DomainReference>>);
+  }
+  addr_to_domains.lookup(d_owner).insert(dom_ref);
+
+  name_to_id.insert(dom_ref, new_id);
+  id_to_data.insert(new_id, disclose(data));
+
+  for (const kv of kvs) {
+    if (disclose(kv) != none<[Opaque<'string'>, Opaque<'string'>]>()) {
+      if (!domain_fields.member(new_id)) {
+        domain_fields.insert(new_id, default<Map<Opaque<'string'>, Opaque<'string'>>>);
+      }
+      domain_fields.lookup(new_id).insert(disclose(kv.value[0]), disclose(kv.value[1]));
+    }
+  }
+}
+
+circuit check_domain_ownership(id: Uint<64>): [] {
+  const owner = id_to_data.lookup(disclose(id)).owner_public_key;
+  assert(owner == derive_public_key(), "Not the owner");
+}
+
+circuit derive_public_key(): Bytes<32> {
+  const tag = pad(32, "midnight.domains");
+  return disclose(persistentHash<[Bytes<32>, Bytes<32>]>([tag, domainSecretKey()]));
+}
+
+// =====================
+//        Domains
+// =====================
+
+export circuit create_domain(owner: Bytes<32>, owner_address: UserAddress, domain: Bytes<32>, len: Uint<32>, parent_id: Uint<64>, target: Bytes<32>, target_type: AddressType, kvs: Vector<6, Maybe<[Opaque<'string'>, Opaque<'string'>]>>): [] {
+  _add_domain(owner, owner_address, domain, len, parent_id, target, target_type, kvs);
+}
+
+export circuit update_domain(id: Uint<64>, data: DomainData): [] {
+  check_domain_ownership(id);
+  const current = id_to_data.lookup(disclose(id));
+  assert(disclose(data).owner_public_key == current.owner_public_key, "Cannot change owner via update");
+  assert(disclose(data).owner_address == current.owner_address, "Cannot change owner_address via update");
+  _update_domain(id, data);
+}
+
+export circuit transfer_domain(
+                 domain: Bytes<32>,
+                 parent_id: Uint<64>,
+                 new_owner: Bytes<32>,
+                 new_owner_address: UserAddress
+                 ): [] {
+
+  const dom_ref = DomainReference { disclose(domain), disclose(parent_id) };
+
+  const dom_id = name_to_id.lookup(dom_ref);
+  check_domain_ownership(dom_id);
+
+  const old_data = id_to_data.lookup(dom_id);
+  const new_data = DomainData {
+    disclose(new_owner),
+    disclose(new_owner_address),
+    old_data.target,
+    old_data.target_type,
+    old_data.default_field,
+    old_data.cost_short,
+    old_data.cost_med,
+    old_data.cost_long,
+    old_data.coin_color,
+    old_data.buy_enabled
+  };
+
+  assert(addr_to_domains.lookup(derive_public_key()).member(dom_ref), "Not the owner");
+  addr_to_domains.lookup(derive_public_key()).remove(dom_ref);
+  if (!addr_to_domains.member(disclose(new_owner))) {
+    addr_to_domains.insert(disclose(new_owner), default<Set<DomainReference>>);
+  }
+  addr_to_domains.lookup(disclose(new_owner)).insert(dom_ref);
+  _update_domain(dom_id, new_data);
+}
+
+// ====================
+//        Fields
+// ====================
+
+export circuit add_domain_field(id: Uint<64>, k: Opaque<'string'>, v: Opaque<'string'>): [] {
+  check_domain_ownership(id);
+  if (!domain_fields.member(disclose(id))) {
+    domain_fields.insert(disclose(id), default<Map<Opaque<'string'>, Opaque<'string'>>>);
+  }
+  domain_fields.lookup(disclose(id)).insert(disclose(k), disclose(v));
+}
+
+export circuit add_multiple_fields(id: Uint<64>, kvs: Vector<10, Maybe<[Opaque<'string'>, Opaque<'string'>]>>): [] {
+  check_domain_ownership(id);
+  for (const kv of kvs) {
+    if (disclose(kv) != none<[Opaque<'string'>, Opaque<'string'>]>()) {
+      if (!domain_fields.member(disclose(id))) {
+        domain_fields.insert(disclose(id), default<Map<Opaque<'string'>, Opaque<'string'>>>);
+      }
+      domain_fields.lookup(disclose(id)).insert(disclose(kv.value[0]), disclose(kv.value[1]));
+    }
+  }
+}
+
+export circuit remove_domain_field(id: Uint<64>, k: Opaque<'string'>): [] {
+  check_domain_ownership(id);
+  assert(domain_fields.member(disclose(id)), "Domain has no fields");
+  domain_fields.lookup(disclose(id)).remove(disclose(k));
+}
+
+export circuit clear_domain_fields(id: Uint<64>): [] {
+  check_domain_ownership(id);
+  if (domain_fields.member(disclose(id))) {
+    domain_fields.remove(disclose(id));
+  }
+}
+
+export circuit update_domain_default_field(id: Uint<64>, d: Maybe<Opaque<'string'>>): [] {
+  check_domain_ownership(id);
+  const current = id_to_data.lookup(disclose(id));
+  const updated = DomainData {
+    current.owner_public_key,
+    current.owner_address,
+    current.target,
+    current.target_type,
+    disclose(d),
+    current.cost_short,
+    current.cost_med,
+    current.cost_long,
+    current.coin_color,
+    current.buy_enabled
+  };
+  _update_domain(id, updated);
+}
+
+// ===================
+//     Validation
+// ===================
+
+circuit verify_domain_path(domain: Bytes<32>, len: Uint<32>,): Boolean {
+  return fold((acc: Boolean, byte: Uint<8>, i: Uint<8>): Boolean =>
+              acc &&
+              (((i < len) &&
+                (is_letter(byte) || is_number(byte) || is_hyphen(byte)) &&
+                !(i == 0 && is_hyphen(byte)) &&
+                !(i == (len - 1) && is_hyphen(byte))) ||
+               ((i >= len) && is_padding(byte))),
+              true,
+              domain,
+              zero_to_31());
+}
+
+circuit is_letter(byte: Uint<8>): Boolean {
+  return (97 <= byte && byte <= 122);
+}
+
+circuit is_number(byte: Uint<8>): Boolean {
+  return (48 <= byte && byte <= 57);
+}
+
+circuit is_hyphen(byte: Uint<8>): Boolean {
+  return byte == 45;
+}
+
+circuit is_padding(byte: Uint<8>): Boolean {
+  return byte == 255;
+}
+
+circuit zero_to_31(): Vector<32, Uint<5>> {
+  return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+          16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31];
+}
