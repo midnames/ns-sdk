@@ -22,6 +22,6 @@ export interface BatchDeployConfig {
   contractAddress?: string; // join existing contract instead of deploying
   walletSeed?: string; // hex seed override
   defaults?: DomainSettings; // global defaults for all domains
-  rootFields?: [string, string][]; // initial fields for root domain (max 6)
+  rootFields?: [string, string][]; // initial fields for root domain (max 10)
   domains: DomainEntry[];
 }

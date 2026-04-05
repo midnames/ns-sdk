@@ -12,7 +12,7 @@ export function hexToBytes(hex: string): Uint8Array {
 }
 
 export function formatContractAddress(bytes: Uint8Array): string {
-  return "0200" + bytesToHex(bytes);
+  return bytesToHex(bytes);
 }
 
 export function isWalletAddress(address: string): boolean {
@@ -45,8 +45,6 @@ export function parseAddressToBytes(address: string): { bytes: Uint8Array } {
     const coinPublicKey = ShieldedCoinPublicKey.codec.decode(getNetworkId(), bech32Parsed);
     return { bytes: new Uint8Array(coinPublicKey.data) };
   }
-  let hexString = address;
-  if (address.startsWith("0200")) hexString = address.slice(4);
-  const bytes = new Uint8Array(Buffer.from(hexString, "hex"));
+  const bytes = new Uint8Array(Buffer.from(address, "hex"));
   return { bytes: bytes.length === 32 ? bytes : bytes.subarray(-32) };
 }

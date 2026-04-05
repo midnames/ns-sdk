@@ -99,7 +99,7 @@ function makePreprodConfig(): NetworkConfig {
     indexer: "https://indexer.preprod.midnight.network/api/v3/graphql",
     indexerWS: "wss://indexer.preprod.midnight.network/api/v3/graphql/ws",
     node: "wss://rpc.preprod.midnight.network",
-    proofServer: "https://ps.midnames.com",
+    proofServer: "http://localhost:6300",
     networkId: "preprod",
   };
   setNetworkId(cfg.networkId);
@@ -574,12 +574,12 @@ async function deployNsContract(
   logger.info(`  buyEnabled: ${rootSettings.buyEnabled}`);
   logger.info(`  rootFields: ${rootFields.length}`);
 
-  // Build kvs: Vector<6, Maybe<[string, string]>>
+  // Build kvs: Vector<10, Maybe<[string, string]>>
   const kvs: Array<{ is_some: boolean; value: [string, string] }> = [];
-  for (const [key, value] of rootFields.slice(0, 6)) {
+  for (const [key, value] of rootFields.slice(0, 10)) {
     kvs.push({ is_some: true, value: [key, value] });
   }
-  while (kvs.length < 6) {
+  while (kvs.length < 10) {
     kvs.push({ is_some: false, value: ["", ""] });
   }
 
@@ -591,12 +591,14 @@ async function deployNsContract(
       tld,                                                              // tld
       coinPublicKeyBytes,                                               // target (root points to deployer)
       NS.AddressType.ZswapCPKAddr,                                     // target_type
-      new Uint8Array(Buffer.from(rootSettings.coinColor, "hex")),       // coin_color
-      rootSettings.costs.short,                                         // cost_short
-      rootSettings.costs.medium,                                        // cost_med
-      rootSettings.costs.long,                                          // cost_long
       { is_some: false, value: "" },                                    // default_field
-      rootSettings.buyEnabled,                                          // buy_enabled
+      {                                                                 // payment_config
+        cost_short: rootSettings.costs.short,
+        cost_med: rootSettings.costs.medium,
+        cost_long: rootSettings.costs.long,
+        coin_color: new Uint8Array(Buffer.from(rootSettings.coinColor, "hex")),
+        buy_enabled: rootSettings.buyEnabled,
+      },
       { bytes: ownerAddressBytes },                                     // owner_address
       kvs,                                                              // kvs
     ],
@@ -862,24 +864,33 @@ async function batchDeploy(config: BatchDeployConfig): Promise<void> {
 
       const { key, len } = domainToKey(domainName);
 
-      // First 6 fields go into the create_domain TX, rest are batched after
-      const inlineFields = entry.fields.slice(0, 6);
-      const remainingFields = entry.fields.slice(6);
+      // First 10 fields go into the create_domain TX, rest are batched after
+      const inlineFields = entry.fields.slice(0, 10);
+      const remainingFields = entry.fields.slice(10);
 
       // Build kvs for inline fields
       const kvs: Array<{ is_some: boolean; value: [string, string] }> = [];
       for (const [k, v] of inlineFields) {
         kvs.push({ is_some: true, value: [k, v] });
       }
-      while (kvs.length < 6) {
+      while (kvs.length < 10) {
         kvs.push({ is_some: false, value: ["", ""] });
       }
 
       logger.info(`Creating domain: ${entry.domain} (parent_id=${parentId}, inline_fields=${inlineFields.length})`);
 
+      const domainSettings = resolveDomainSettings(entry.settings, config.defaults);
+      const paymentConfig = {
+        cost_short: domainSettings.costs.short,
+        cost_med: domainSettings.costs.medium,
+        cost_long: domainSettings.costs.long,
+        coin_color: new Uint8Array(Buffer.from(domainSettings.coinColor, "hex")),
+        buy_enabled: domainSettings.buyEnabled,
+      };
       const result = await contract.callTx.create_domain(
-        derivedKey, { bytes: ownerAddressBytes }, key, len,
-        parentId, coinPublicKeyBytes, NS.AddressType.ZswapCPKAddr, kvs,
+        { bytes: ownerAddressBytes }, key, len,
+        parentId, coinPublicKeyBytes, NS.AddressType.ZswapCPKAddr,
+        { is_some: false, value: "" }, paymentConfig, kvs,
       );
       logger.info(`Domain "${entry.domain}" created. Tx: ${result.public.txId}`);
 
@@ -898,40 +909,7 @@ async function batchDeploy(config: BatchDeployConfig): Promise<void> {
       domainIds.set(entry.domain, domainId);
       logger.info(`Domain "${entry.domain}" assigned ID: ${domainId}`);
 
-      // Phase 2 (inline): Update settings if needed
-      const domainSettings = resolveDomainSettings(entry.settings, config.defaults);
-      const needsSettingsUpdate =
-        domainSettings.coinColor !== DEFAULT_DOMAIN_SETTINGS.coinColor ||
-        domainSettings.costs.short !== 0n ||
-        domainSettings.costs.medium !== 0n ||
-        domainSettings.costs.long !== 0n ||
-        domainSettings.buyEnabled !== false;
-
-      if (needsSettingsUpdate) {
-        logger.info(`Updating settings for "${entry.domain}"...`);
-
-        const currentData = contractLedger.id_to_data.lookup(domainId);
-        const updatedData = {
-          owner_public_key: currentData.owner_public_key,
-          owner_address: currentData.owner_address,
-          target: currentData.target,
-          target_type: currentData.target_type,
-          default_field: currentData.default_field,
-          cost_short: domainSettings.costs.short,
-          cost_med: domainSettings.costs.medium,
-          cost_long: domainSettings.costs.long,
-          coin_color: new Uint8Array(Buffer.from(domainSettings.coinColor, "hex")),
-          buy_enabled: domainSettings.buyEnabled,
-        };
-
-        const updateResult = await contract.callTx.update_domain(domainId, updatedData);
-        logger.info(`Settings updated. Tx: ${updateResult.public.txId}`);
-
-        await new Promise((r) => setTimeout(r, 6_500));
-        await waitForSync(walletContext.wallet);
-      }
-
-      // Phase 3 (inline): Add remaining fields in batches of 10
+      // Phase 2 (inline): Add remaining fields in batches of 10
       for (let i = 0; i < remainingFields.length; i += 10) {
         const batch = remainingFields.slice(i, i + 10);
         logger.info(`Adding ${batch.length} field(s) to "${entry.domain}" (batch ${Math.floor(i / 10) + 1})...`);

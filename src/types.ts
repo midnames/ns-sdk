@@ -1,4 +1,4 @@
-export type { DomainData, DomainReference, Maybe } from "./managed/contract/index.js";
+export type { DomainData, DomainReference, Maybe, PaymentConfig } from "./managed/contract/index.js";
 export { AddressType } from "./managed/contract/index.js";
 
 export type DomainTarget =

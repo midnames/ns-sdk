@@ -9,6 +9,7 @@ export {
   type DomainData,
   type DomainReference,
   type Maybe,
+  type PaymentConfig,
   type Witnesses,
   type Ledger,
   type DNSPrivateState,
@@ -51,10 +52,7 @@ export {
   clearDomainFields,
   updateDefaultField,
   updateDomainTarget,
-  updateDomainColor,
-  updateDomainCosts,
-  updateBuyEnabled,
-  updateDomainCostsAndBuyEnabled,
+  updatePaymentConfig,
 } from "./operations.js";
 
 // Provider

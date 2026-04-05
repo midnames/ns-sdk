@@ -224,13 +224,13 @@ export async function getDomainSettings(
 
     const data = contractLedger.id_to_data.lookup(domainId);
     return {
-      coinColor: data.coin_color,
+      coinColor: data.payment_config.coin_color,
       costs: {
-        short: data.cost_short,
-        medium: data.cost_med,
-        long: data.cost_long,
+        short: data.payment_config.cost_short,
+        medium: data.payment_config.cost_med,
+        long: data.payment_config.cost_long,
       },
-      buyEnabled: data.buy_enabled,
+      buyEnabled: data.payment_config.buy_enabled,
       defaultField: data.default_field.is_some ? data.default_field.value : null,
     };
   });
@@ -268,13 +268,13 @@ export async function getDomainProfile(
     }
 
     const settings: DomainSettings = {
-      coinColor: domainData.coin_color,
+      coinColor: domainData.payment_config.coin_color,
       costs: {
-        short: domainData.cost_short,
-        medium: domainData.cost_med,
-        long: domainData.cost_long,
+        short: domainData.payment_config.cost_short,
+        medium: domainData.payment_config.cost_med,
+        long: domainData.payment_config.cost_long,
       },
-      buyEnabled: domainData.buy_enabled,
+      buyEnabled: domainData.payment_config.buy_enabled,
       defaultField: domainData.default_field.is_some
         ? domainData.default_field.value
         : null,

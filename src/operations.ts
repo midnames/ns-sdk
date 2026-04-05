@@ -6,7 +6,7 @@ import {
 import { getNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { NS, MANAGED_DIR, witnesses, AddressType } from "./contract.js";
 import type { DomainTarget } from "./types.js";
-import type { DomainData } from "./managed/contract/index.js";
+import type { DomainData, PaymentConfig } from "./managed/contract/index.js";
 import { type Result, success, failure } from "./results.js";
 import { NetworkError } from "./errors.js";
 import { domainToKey } from "./utils/domain.js";
@@ -89,7 +89,7 @@ function targetToContractArgs(target: DomainTarget): { targetBytes: Uint8Array; 
 
 export function buildKvs(
   fields: Array<[string, string]>,
-  size: number = 6,
+  size: number = 10,
 ): Array<{ is_some: boolean; value: [string, string] }> {
   return Array.from({ length: size }, (_, i) => ({
     is_some: i < fields.length,
@@ -102,18 +102,21 @@ export function buildKvs(
 export async function createDomain(
   domainName: string,
   parentId: bigint,
-  ownerDerivedKey: Uint8Array,
   ownerAddress: { bytes: Uint8Array },
   target: DomainTarget,
+  paymentConfig: PaymentConfig,
   providers: ContractProviders<NS.Contract>,
-  options?: OperationOptions & { fields?: Array<[string, string]> },
+  options?: OperationOptions & { fields?: Array<[string, string]>; defaultField?: string },
 ): Promise<Result<{ transactionId: string }>> {
   const { key, len } = domainToKey(domainName);
   const { targetBytes, targetType } = targetToContractArgs(target);
-  const kvs = buildKvs(options?.fields ?? [], 6);
+  const kvs = buildKvs(options?.fields ?? [], 10);
+  const defaultField = options?.defaultField
+    ? { is_some: true as const, value: options.defaultField }
+    : { is_some: false as const, value: "" };
   return withContract(providers, "create domain", async (contract) =>
     txId(await contract.callTx.create_domain(
-      ownerDerivedKey, ownerAddress, key, len, parentId, targetBytes, targetType, kvs,
+      ownerAddress, key, len, parentId, targetBytes, targetType, defaultField, paymentConfig, kvs,
     )),
     options,
   );
@@ -253,59 +256,17 @@ export async function updateDomainTarget(
   return updateDomain(domainId, { ...data, target: targetBytes, target_type: targetType }, providers, options);
 }
 
-export async function updateDomainColor(
+export async function updatePaymentConfig(
   domainId: bigint,
-  color: Uint8Array,
-  providers: ContractProviders<NS.Contract>,
-  options?: OperationOptions,
-): Promise<Result<{ transactionId: string }>> {
-  if (color.length !== 32) return failure(new NetworkError("Color must be exactly 32 bytes"));
-  const dataResult = await fetchDomainData(providers, domainId, options?.contractAddress);
-  if (!dataResult.success) return dataResult;
-  return updateDomain(domainId, { ...dataResult.data, coin_color: color }, providers, options);
-}
-
-export async function updateDomainCosts(
-  domainId: bigint,
-  costs: { short: bigint; medium: bigint; long: bigint },
+  config: Partial<PaymentConfig>,
   providers: ContractProviders<NS.Contract>,
   options?: OperationOptions,
 ): Promise<Result<{ transactionId: string }>> {
   const dataResult = await fetchDomainData(providers, domainId, options?.contractAddress);
   if (!dataResult.success) return dataResult;
+  const current = dataResult.data;
   return updateDomain(domainId, {
-    ...dataResult.data,
-    cost_short: costs.short,
-    cost_med: costs.medium,
-    cost_long: costs.long,
-  }, providers, options);
-}
-
-export async function updateBuyEnabled(
-  domainId: bigint,
-  enabled: boolean,
-  providers: ContractProviders<NS.Contract>,
-  options?: OperationOptions,
-): Promise<Result<{ transactionId: string }>> {
-  const dataResult = await fetchDomainData(providers, domainId, options?.contractAddress);
-  if (!dataResult.success) return dataResult;
-  return updateDomain(domainId, { ...dataResult.data, buy_enabled: enabled }, providers, options);
-}
-
-export async function updateDomainCostsAndBuyEnabled(
-  domainId: bigint,
-  costs: { short: bigint; medium: bigint; long: bigint },
-  enabled: boolean,
-  providers: ContractProviders<NS.Contract>,
-  options?: OperationOptions,
-): Promise<Result<{ transactionId: string }>> {
-  const dataResult = await fetchDomainData(providers, domainId, options?.contractAddress);
-  if (!dataResult.success) return dataResult;
-  return updateDomain(domainId, {
-    ...dataResult.data,
-    cost_short: costs.short,
-    cost_med: costs.medium,
-    cost_long: costs.long,
-    buy_enabled: enabled,
+    ...current,
+    payment_config: { ...current.payment_config, ...config },
   }, providers, options);
 }

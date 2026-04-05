@@ -3,6 +3,7 @@ export {
   type DomainData,
   type DomainReference,
   type Maybe,
+  type PaymentConfig,
   type Witnesses,
   type Ledger,
   AddressType,
