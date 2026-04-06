@@ -17,7 +17,7 @@ export const NETWORK_REGISTRY: Record<string, NetworkConfig> = {
   preprod: {
     indexerUrl: "https://indexer.preprod.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.preprod.midnight.network/api/v3/graphql/ws",
-    contractAddress: "740e8be0422bd9daaff0e44f2a143775d72c37f586b426a70225f69556a61325",
+    contractAddress: "cd74a2e9765e1f56e4ada5e2eaea37040212456c386e7f0e7671bcde23577c9c",
   },
   mainnet: {
     indexerUrl: "https://indexer.mainnet.midnight.network/api/v3/graphql",

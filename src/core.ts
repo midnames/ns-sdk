@@ -178,6 +178,7 @@ export async function getDomainInfo(
       owner: bytesToHex(domainData.owner_public_key),
       ownerAddress: formatUnshieldedAddress(domainData.owner_address.bytes),
       target: getTargetFromDomainData(domainData),
+      targetLocked: domainData.target_locked,
     };
   });
 }
@@ -232,6 +233,7 @@ export async function getDomainSettings(
       },
       buyEnabled: data.payment_config.buy_enabled,
       defaultField: data.default_field.is_some ? data.default_field.value : null,
+      paymentConfigLocked: data.payment_config_locked,
     };
   });
 }
@@ -258,6 +260,7 @@ export async function getDomainProfile(
       owner: bytesToHex(domainData.owner_public_key),
       ownerAddress: formatUnshieldedAddress(domainData.owner_address.bytes),
       target: getTargetFromDomainData(domainData),
+      targetLocked: domainData.target_locked,
     };
 
     const fields: Map<string, string> = new Map();
@@ -278,6 +281,7 @@ export async function getDomainProfile(
       defaultField: domainData.default_field.is_some
         ? domainData.default_field.value
         : null,
+      paymentConfigLocked: domainData.payment_config_locked,
     };
 
     return { fullDomain: normalized, info, fields, settings };
@@ -308,6 +312,7 @@ export async function getSubdomains(
           owner: bytesToHex(data.owner_public_key),
           ownerAddress: bytesToHex(data.owner_address.bytes),
           target: getTargetFromDomainData(data),
+          targetLocked: data.target_locked,
         });
       }
     }

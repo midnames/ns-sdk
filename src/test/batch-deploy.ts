@@ -10,7 +10,7 @@ import {
   type MidnightProvider,
   type WalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
-import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
+import { setNetworkId, getNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { NetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -19,10 +19,14 @@ import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-pri
 import {
   deployContract,
   findDeployedContract,
+  createUnprovenDeployTx,
+  submitTx,
+  submitInsertVerifierKeyTx,
   type ContractProviders,
   type DeployedContract,
   type FoundContract,
 } from "@midnight-ntwrk/midnight-js-contracts";
+import { sampleSigningKey } from "@midnight-ntwrk/compact-runtime";
 
 import { HDWallet, Roles } from "@midnight-ntwrk/wallet-sdk-hd";
 import { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
@@ -574,7 +578,35 @@ async function deployNsContract(
   logger.info(`  buyEnabled: ${rootSettings.buyEnabled}`);
   logger.info(`  rootFields: ${rootFields.length}`);
 
-  // Build kvs: Vector<10, Maybe<[string, string]>>
+  const deployedContract = await deployContract(providers, {
+    compiledContract: nsContractInstance as any,
+    privateStateId: "nsPrivateState",
+    initialPrivateState: { secretKey: secretKeyHex },
+    args: buildConstructorArgs(tld, coinPublicKeyBytes, ownerAddressBytes, rootFields, rootSettings),
+  });
+
+  logger.info(
+    `NS contract deployed at: ${deployedContract.deployTxData.public.contractAddress}`,
+  );
+  return deployedContract;
+}
+
+// ─── Partial Deployment ────────────────────────────────────────────────────
+
+const ALL_PROVABLE_CIRCUIT_IDS = [
+  "create_domain", "update_target", "update_payment_config",
+  "transfer_domain", "add_domain_field", "add_multiple_fields",
+  "remove_domain_field", "clear_domain_fields",
+  "update_domain_default_field", "lock_target", "lock_payment_config",
+] as const;
+
+function buildConstructorArgs(
+  tld: string,
+  coinPublicKeyBytes: Uint8Array,
+  ownerAddressBytes: Uint8Array,
+  rootFields: [string, string][],
+  rootSettings: Required<DomainSettings>,
+) {
   const kvs: Array<{ is_some: boolean; value: [string, string] }> = [];
   for (const [key, value] of rootFields.slice(0, 10)) {
     kvs.push({ is_some: true, value: [key, value] });
@@ -582,32 +614,165 @@ async function deployNsContract(
   while (kvs.length < 10) {
     kvs.push({ is_some: false, value: ["", ""] });
   }
+  return [
+    tld,
+    coinPublicKeyBytes,
+    NS.AddressType.ZswapCPKAddr,
+    { is_some: false, value: "" },
+    {
+      cost_short: rootSettings.costs.short,
+      cost_med: rootSettings.costs.medium,
+      cost_long: rootSettings.costs.long,
+      coin_color: new Uint8Array(Buffer.from(rootSettings.coinColor, "hex")),
+      buy_enabled: rootSettings.buyEnabled,
+    },
+    { bytes: ownerAddressBytes },
+    kvs,
+  ];
+}
 
-  const deployedContract = await deployContract(providers, {
-    compiledContract: nsContractInstance as any,
-    privateStateId: "nsPrivateState",
-    initialPrivateState: { secretKey: secretKeyHex },
-    args: [
-      tld,                                                              // tld
-      coinPublicKeyBytes,                                               // target (root points to deployer)
-      NS.AddressType.ZswapCPKAddr,                                     // target_type
-      { is_some: false, value: "" },                                    // default_field
-      {                                                                 // payment_config
-        cost_short: rootSettings.costs.short,
-        cost_med: rootSettings.costs.medium,
-        cost_long: rootSettings.costs.long,
-        coin_color: new Uint8Array(Buffer.from(rootSettings.coinColor, "hex")),
-        buy_enabled: rootSettings.buyEnabled,
-      },
-      { bytes: ownerAddressBytes },                                     // owner_address
-      kvs,                                                              // kvs
-    ],
-  });
+/**
+ * Deploy the NS contract with only a subset of verifier keys, producing a
+ * smaller deploy TX that fits within on-chain size limits. The remaining VKs
+ * are inserted via separate maintenance transactions afterward.
+ */
+async function deployNsContractPartial(
+  providers: ContractProviders,
+  tld: string,
+  coinPublicKeyBytes: Uint8Array,
+  ownerAddressBytes: Uint8Array,
+  secretKeyHex: string,
+  rootFields: [string, string][] = [],
+  rootSettings: Required<DomainSettings> = DEFAULT_DOMAIN_SETTINGS,
+  deployCircuits: string[] = [],
+): Promise<{ contractAddress: string }> {
+  logger.info(`Deploying NS contract (partial) for TLD: ${tld}`);
+  logger.info(`  Including ${deployCircuits.length} of ${ALL_PROVABLE_CIRCUIT_IDS.length} circuit VKs in deploy TX`);
+  if (deployCircuits.length > 0) {
+    logger.info(`  Deploy circuits: [${deployCircuits.join(", ")}]`);
+  }
 
-  logger.info(
-    `NS contract deployed at: ${deployedContract.deployTxData.public.contractAddress}`,
+  const signingKey = sampleSigningKey();
+  const args = buildConstructorArgs(tld, coinPublicKeyBytes, ownerAddressBytes, rootFields, rootSettings);
+
+  // Phase A: Run constructor client-side with all VKs to get the correct initial state
+  logger.info("Running constructor client-side...");
+  const fullResult = await createUnprovenDeployTx(
+    { zkConfigProvider: providers.zkConfigProvider, walletProvider: providers.walletProvider } as any,
+    {
+      compiledContract: nsContractInstance as any,
+      initialPrivateState: { secretKey: secretKeyHex },
+      signingKey,
+      args,
+    },
   );
-  return deployedContract;
+
+  // Phase B: Build a partial ContractState with only the deploy-subset VKs
+  const fullState = ledger.ContractState.deserialize(
+    fullResult.public.initialContractState.serialize(),
+  );
+  logger.info(`Full state has ${fullState.operations().length} operations`);
+
+  const partialState = new ledger.ContractState();
+  partialState.data = fullState.data;
+  partialState.maintenanceAuthority = fullState.maintenanceAuthority;
+
+  const deploySet = new Set(deployCircuits);
+  for (const circuitId of deployCircuits) {
+    const op = fullState.operation(circuitId);
+    if (op) {
+      partialState.setOperation(circuitId, op);
+    } else {
+      logger.warn(`Circuit "${circuitId}" not found in full state — skipping`);
+    }
+  }
+  logger.info(`Partial state has ${partialState.operations().length} operations`);
+
+  // Phase C: Build and submit the deploy TX
+  const ttl = new Date(Date.now() + 60 * 60 * 1000);
+  const contractDeploy = new ledger.ContractDeploy(partialState);
+  const contractAddress = contractDeploy.address.toString();
+  const intent = ledger.Intent.new(ttl).addDeploy(contractDeploy);
+  const unprovenTx = ledger.Transaction.fromParts(
+    getNetworkId() as any, undefined, undefined, intent,
+  );
+
+  logger.info(`Submitting partial deploy TX (contract address: ${contractAddress})...`);
+  const txResult = await submitTx(providers as any, { unprovenTx });
+  logger.info(`Partial deploy TX finalized: ${txResult.txId}`);
+
+  // Phase D: Store signing key and private state (mimicking deployContract internals)
+  providers.privateStateProvider.setContractAddress(contractAddress as any);
+  await providers.privateStateProvider.set(
+    "nsPrivateState" as any,
+    fullResult.private.initialPrivateState,
+  );
+  await providers.privateStateProvider.setSigningKey(
+    contractAddress as any,
+    signingKey,
+  );
+
+  logger.info(`NS contract partially deployed at: ${contractAddress}`);
+  return { contractAddress };
+}
+
+/**
+ * Insert verifier keys for circuits not included in the initial deploy TX.
+ */
+async function insertRemainingVerifierKeys(
+  providers: ContractProviders,
+  walletContext: WalletContext,
+  contractAddress: string,
+  deployCircuits: string[],
+  maxRetries = 3,
+): Promise<void> {
+  const deploySet = new Set(deployCircuits);
+  const circuitsToInsert = ALL_PROVABLE_CIRCUIT_IDS.filter((id) => !deploySet.has(id));
+
+  if (circuitsToInsert.length === 0) {
+    logger.info("All circuit VKs included in deploy — no insertions needed");
+    return;
+  }
+
+  logger.info(`Inserting ${circuitsToInsert.length} verifier key(s)...`);
+
+  for (const circuitId of circuitsToInsert) {
+    let attempt = 0;
+    while (true) {
+      try {
+        logger.info(`Inserting VK for circuit: ${circuitId} (attempt ${attempt + 1}/${maxRetries})`);
+
+        const vk = await providers.zkConfigProvider.getVerifierKey(circuitId);
+
+        await submitInsertVerifierKeyTx(
+          providers as any,
+          nsContractInstance as any,
+          contractAddress as any,
+          circuitId,
+          vk,
+        );
+
+        logger.info(`VK inserted for: ${circuitId}`);
+
+        // Wait for TX to settle, sync wallet, check dust
+        await new Promise((r) => setTimeout(r, 6_500));
+        await waitForSync(walletContext.wallet);
+        await registerNightForDust(walletContext);
+
+        break;
+      } catch (e) {
+        attempt++;
+        if (attempt >= maxRetries) {
+          throw new Error(`Failed to insert VK for "${circuitId}" after ${maxRetries} attempts: ${e}`);
+        }
+        logger.warn(`Retry ${attempt}/${maxRetries} for "${circuitId}": ${e}`);
+        await new Promise((r) => setTimeout(r, 10_000));
+        await waitForSync(walletContext.wallet);
+      }
+    }
+  }
+
+  logger.info("All verifier keys inserted successfully");
 }
 
 // ─── Service Check ──────────────────────────────────────────────────────────
@@ -820,15 +985,49 @@ async function batchDeploy(config: BatchDeployConfig): Promise<void> {
       });
     } else {
       const rootSettings = resolveDomainSettings(undefined, config.defaults);
-      contract = await deployNsContract(
-        providers,
-        tld,
-        coinPublicKeyBytes,
-        ownerAddressBytes,
-        secretKeyHex,
-        config.rootFields ?? [],
-        rootSettings,
-      );
+      const deployCircuits = config.deployCircuits;
+      const usePartialDeploy = deployCircuits != null && deployCircuits.length < ALL_PROVABLE_CIRCUIT_IDS.length;
+
+      if (usePartialDeploy) {
+        // ── Partial deployment: deploy with subset of VKs, insert rest after ──
+        logger.info("Using partial deployment strategy");
+
+        const { contractAddress: partialAddr } = await deployNsContractPartial(
+          providers, tld, coinPublicKeyBytes, ownerAddressBytes,
+          secretKeyHex, config.rootFields ?? [], rootSettings, deployCircuits,
+        );
+
+        // Wait for deploy TX to settle
+        logger.info("Waiting for deploy TX to settle...");
+        await new Promise((r) => setTimeout(r, 6_500));
+        await waitForSync(walletContext.wallet);
+        await displayWalletBalances(walletContext.wallet);
+        await registerNightForDust(walletContext);
+
+        // Insert remaining VKs one at a time
+        await insertRemainingVerifierKeys(
+          providers, walletContext, partialAddr, deployCircuits,
+        );
+
+        // Wait for last insertion to settle, then join the fully-provisioned contract
+        logger.info("Waiting for VK insertions to settle...");
+        await new Promise((r) => setTimeout(r, 6_500));
+        await waitForSync(walletContext.wallet);
+
+        logger.info("Joining fully-provisioned contract...");
+        contract = await findDeployedContract(providers, {
+          contractAddress: partialAddr,
+          compiledContract: nsContractInstance as any,
+          privateStateId: "nsPrivateState",
+          initialPrivateState: { secretKey: secretKeyHex },
+        });
+      } else {
+        // ── Full deployment: all VKs in one TX (original path) ──
+        contract = await deployNsContract(
+          providers, tld, coinPublicKeyBytes, ownerAddressBytes,
+          secretKeyHex, config.rootFields ?? [], rootSettings,
+        );
+      }
     }
 
     const contractAddress = contract.deployTxData.public.contractAddress;

@@ -16,7 +16,6 @@ export ledger addr_to_domains: Map<Bytes<32>, Set<DomainReference>>;
 
 export ledger domain_fields: Map<Uint<64>, Map<Opaque<'string'>, Opaque<'string'>>>;
 
-
 witness domainSecretKey(): Bytes<32>;
 
 export enum AddressType {
@@ -33,7 +32,9 @@ struct DomainData {
   target: Bytes<32>,
   target_type: AddressType,
   default_field: Maybe<Opaque<'string'>>,
-  payment_config: PaymentConfig
+  payment_config: PaymentConfig,
+  target_locked: Boolean,
+  payment_config_locked: Boolean
 }
 
 struct PaymentConfig {
@@ -41,7 +42,7 @@ struct PaymentConfig {
   cost_med: Uint<128>,
   cost_long: Uint<128>,
   coin_color: Bytes<32>,
-  buy_enabled: Boolean  
+  buy_enabled: Boolean
 }
 
 struct DomainReference {
@@ -67,7 +68,9 @@ constructor(tld: Opaque<'string'>,
                        disclose(target),
                        disclose(target_type),
                        disclose(default_field),
-                       disclose(payment_config) };
+                       disclose(payment_config),
+                       false,
+                       false };
   const root_ref = DomainReference { default<Bytes<32>>, 0 };
   const root_owner = derive_public_key();
 
@@ -97,6 +100,20 @@ circuit get_and_inc_id(): Uint<64> {
 }
 
 circuit _update_domain(id: Uint<64>, data: DomainData): [] {
+  const current = id_to_data.lookup(disclose(id));
+
+  assert(!current.target_locked || disclose(data).target_locked, "Cannot unlock a locked target");
+  assert(!current.payment_config_locked || disclose(data).payment_config_locked,
+         "Cannot unlock payment config"
+         );
+  assert(!current.target_locked || disclose(data).target == current.target, "Target is locked");
+  assert(!current.target_locked || disclose(data).target_type == current.target_type,
+         "Target type is locked"
+         );
+  assert(!current.payment_config_locked || disclose(data).payment_config == current.payment_config,
+         "Payment config is locked"
+         );
+
   id_to_data.insert(disclose(id), disclose(data));
 }
 
@@ -135,6 +152,9 @@ export circuit create_domain(
 
   const parent = id_to_data.lookup(disclose(parent_id));
 
+  const dom_ref = DomainReference { disclose(domain), disclose(parent_id) };
+  assert(!name_to_id.member(dom_ref), "This (sub)domain already exists");
+
   if (derive_public_key() == parent.owner_public_key) {
     // parent owner registers for free
   } else {
@@ -165,8 +185,6 @@ export circuit create_domain(
   }
 
   const new_id = get_and_inc_id();
-  const dom_ref = DomainReference { disclose(domain), disclose(parent_id) };
-  assert(!name_to_id.member(dom_ref), "This (sub)domain already exists");
 
   const d_owner = derive_public_key();
   const data = DomainData { d_owner,
@@ -174,7 +192,9 @@ export circuit create_domain(
                             disclose(target),
                             disclose(target_type),
                             disclose(default_field),
-                            disclose(payment_config) };
+                            disclose(payment_config),
+                            false,
+                            false };
 
   if (!addr_to_domains.member(d_owner)) {
     addr_to_domains.insert(d_owner, default<Set<DomainReference>>);
@@ -194,16 +214,34 @@ export circuit create_domain(
   }
 }
 
-export circuit update_domain(id: Uint<64>, data: DomainData): [] {
+export circuit update_target(id: Uint<64>, target: Bytes<32>, target_type: AddressType): [] {
   check_domain_ownership(id);
   const current = id_to_data.lookup(disclose(id));
-  assert(disclose(data).owner_public_key == current.owner_public_key,
-         "Cannot change owner via update"
-         );
-  assert(disclose(data).owner_address == current.owner_address,
-         "Cannot change owner_address via update"
-         );
-  _update_domain(id, data);
+  assert(!current.target_locked, "Target is locked");
+  const updated = DomainData { current.owner_public_key,
+                               current.owner_address,
+                               disclose(target),
+                               disclose(target_type),
+                               current.default_field,
+                               current.payment_config,
+                               current.target_locked,
+                               current.payment_config_locked };
+  _update_domain(id, updated);
+}
+
+export circuit update_payment_config(id: Uint<64>, pc: PaymentConfig): [] {
+  check_domain_ownership(id);
+  const current = id_to_data.lookup(disclose(id));
+  assert(!current.payment_config_locked, "Payment config is locked");
+  const updated = DomainData { current.owner_public_key,
+                               current.owner_address,
+                               current.target,
+                               current.target_type,
+                               current.default_field,
+                               disclose(pc),
+                               current.target_locked,
+                               current.payment_config_locked };
+  _update_domain(id, updated);
 }
 
 export circuit transfer_domain(
@@ -225,7 +263,9 @@ export circuit transfer_domain(
                        old_data.target,
                        old_data.target_type,
                        old_data.default_field,
-                       old_data.payment_config };
+                       old_data.payment_config,
+                       old_data.target_locked,
+                       old_data.payment_config_locked };
 
   addr_to_domains.lookup(derive_public_key()).remove(dom_ref);
   if (!addr_to_domains.member(disclose(new_owner))) {
@@ -283,7 +323,41 @@ export circuit update_domain_default_field(id: Uint<64>, d: Maybe<Opaque<'string
                                current.target,
                                current.target_type,
                                disclose(d),
-                               current.payment_config };
+                               current.payment_config,
+                               current.target_locked,
+                               current.payment_config_locked };
+  _update_domain(id, updated);
+}
+
+// ===================
+//        Locks
+// ===================
+
+export circuit lock_target(id: Uint<64>): [] {
+  check_domain_ownership(id);
+  const current = id_to_data.lookup(disclose(id));
+  const updated = DomainData { current.owner_public_key,
+                               current.owner_address,
+                               current.target,
+                               current.target_type,
+                               current.default_field,
+                               current.payment_config,
+                               true,
+                               current.payment_config_locked };
+  _update_domain(id, updated);
+}
+
+export circuit lock_payment_config(id: Uint<64>): [] {
+  check_domain_ownership(id);
+  const current = id_to_data.lookup(disclose(id));
+  const updated = DomainData { current.owner_public_key,
+                               current.owner_address,
+                               current.target,
+                               current.target_type,
+                               current.default_field,
+                               current.payment_config,
+                               current.target_locked,
+                               true };
   _update_domain(id, updated);
 }
 

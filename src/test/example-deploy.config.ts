@@ -14,13 +14,14 @@ export const config: BatchDeployConfig = {
   network: "preprod",
   tld: "night",
   defaults: {
-    coinColor: "0000000000000000000000000000000000000000000000000000000000000000",
-    costs: { short: 50n, medium: 10n, long: 5n },
+    coinColor: "0c3b8da78257d90a09b813a63fc3e00493cad1b3783209beb7c0f4a6ad803a59",
+    costs: { short: 600n, medium: 140n, long: 10n },
     buyEnabled: true,
   },
+  deployCircuits: [],  // partial deploy: insert all VKs via maintenance TXs
   rootFields: [
-    ["name", "Midnames"],
-    ["bio", "Midnight Name Service"],
+    ["name", "Midnight Domains"],
+    ["bio", "Domain Name Service for Midnight Network"],
   ],
   domains: [
     {

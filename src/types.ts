@@ -11,6 +11,7 @@ export interface DomainInfo {
   owner: string;
   ownerAddress: string;
   target: DomainTarget;
+  targetLocked: boolean;
 }
 
 export interface DomainSettings {
@@ -22,6 +23,7 @@ export interface DomainSettings {
   };
   buyEnabled: boolean;
   defaultField: string | null;
+  paymentConfigLocked: boolean;
 }
 
 export interface DomainProfileData {

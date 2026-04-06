@@ -23,5 +23,6 @@ export interface BatchDeployConfig {
   walletSeed?: string; // hex seed override
   defaults?: DomainSettings; // global defaults for all domains
   rootFields?: [string, string][]; // initial fields for root domain (max 10)
+  deployCircuits?: string[]; // circuit IDs to include in initial deploy TX; remaining are inserted after via maintenance TXs (default: all — single deploy TX)
   domains: DomainEntry[];
 }

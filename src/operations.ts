@@ -6,13 +6,12 @@ import {
 import { getNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { NS, MANAGED_DIR, witnesses, AddressType } from "./contract.js";
 import type { DomainTarget } from "./types.js";
-import type { DomainData, PaymentConfig } from "./managed/contract/index.js";
+import type { PaymentConfig } from "./managed/contract/index.js";
 import { type Result, success, failure } from "./results.js";
 import { NetworkError } from "./errors.js";
 import { domainToKey } from "./utils/domain.js";
 import { parseAddressToBytes } from "./utils/address.js";
 import { getNetworkConfig } from "./provider.js";
-import { getContractLedger, resolveDomainIdInLedger } from "./core.js";
 
 // ---- Contract instance ----
 
@@ -124,18 +123,6 @@ export async function createDomain(
 
 // ---- Domain updates ----
 
-export async function updateDomain(
-  domainId: bigint,
-  data: DomainData,
-  providers: ContractProviders<NS.Contract>,
-  options?: OperationOptions,
-): Promise<Result<{ transactionId: string }>> {
-  return withContract(providers, "update domain", async (contract) =>
-    txId(await contract.callTx.update_domain(domainId, data)),
-    options,
-  );
-}
-
 export async function transferDomain(
   domainName: string,
   parentId: bigint,
@@ -223,25 +210,7 @@ export async function updateDefaultField(
   );
 }
 
-// ---- Granular update helpers (read-modify-write) ----
-
-async function fetchDomainData(
-  providers: ContractProviders<NS.Contract>,
-  domainId: bigint,
-  contractAddress?: string,
-): Promise<Result<DomainData>> {
-  try {
-    const publicDataProvider = (providers as any).publicDataProvider;
-    const ledgerResult = await getContractLedger(publicDataProvider, contractAddress);
-    if (!ledgerResult.success) return failure(ledgerResult.error);
-    if (!ledgerResult.data.id_to_data.member(domainId)) {
-      return failure(new NetworkError(`Domain ID ${domainId} not found`));
-    }
-    return success(ledgerResult.data.id_to_data.lookup(domainId));
-  } catch (error) {
-    return failure(new NetworkError(`Failed to fetch domain data: ${error instanceof Error ? error.message : String(error)}`, error));
-  }
-}
+// ---- Granular update operations ----
 
 export async function updateDomainTarget(
   domainId: bigint,
@@ -249,24 +218,45 @@ export async function updateDomainTarget(
   providers: ContractProviders<NS.Contract>,
   options?: OperationOptions,
 ): Promise<Result<{ transactionId: string }>> {
-  const dataResult = await fetchDomainData(providers, domainId, options?.contractAddress);
-  if (!dataResult.success) return dataResult;
-  const data = dataResult.data;
   const { targetBytes, targetType } = targetToContractArgs(target);
-  return updateDomain(domainId, { ...data, target: targetBytes, target_type: targetType }, providers, options);
+  return withContract(providers, "update target", async (contract) =>
+    txId(await contract.callTx.update_target(domainId, targetBytes, targetType)),
+    options,
+  );
 }
 
 export async function updatePaymentConfig(
   domainId: bigint,
-  config: Partial<PaymentConfig>,
+  config: PaymentConfig,
   providers: ContractProviders<NS.Contract>,
   options?: OperationOptions,
 ): Promise<Result<{ transactionId: string }>> {
-  const dataResult = await fetchDomainData(providers, domainId, options?.contractAddress);
-  if (!dataResult.success) return dataResult;
-  const current = dataResult.data;
-  return updateDomain(domainId, {
-    ...current,
-    payment_config: { ...current.payment_config, ...config },
-  }, providers, options);
+  return withContract(providers, "update payment config", async (contract) =>
+    txId(await contract.callTx.update_payment_config(domainId, config)),
+    options,
+  );
+}
+
+// ---- Lock operations ----
+
+export async function lockTarget(
+  domainId: bigint,
+  providers: ContractProviders<NS.Contract>,
+  options?: OperationOptions,
+): Promise<Result<{ transactionId: string }>> {
+  return withContract(providers, "lock target", async (contract) =>
+    txId(await contract.callTx.lock_target(domainId)),
+    options,
+  );
+}
+
+export async function lockPaymentConfig(
+  domainId: bigint,
+  providers: ContractProviders<NS.Contract>,
+  options?: OperationOptions,
+): Promise<Result<{ transactionId: string }>> {
+  return withContract(providers, "lock payment config", async (contract) =>
+    txId(await contract.callTx.lock_payment_config(domainId)),
+    options,
+  );
 }

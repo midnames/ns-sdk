@@ -44,7 +44,6 @@ export {
   buildKvs,
   type OperationOptions,
   createDomain,
-  updateDomain,
   transferDomain,
   addDomainField,
   addMultipleFields,
@@ -53,6 +52,8 @@ export {
   updateDefaultField,
   updateDomainTarget,
   updatePaymentConfig,
+  lockTarget,
+  lockPaymentConfig,
 } from "./operations.js";
 
 // Provider
