@@ -1,8 +1,9 @@
-src/test/midnight-level-db/
+midnight-level-db/
 node_modules/
 dist/
 src/managed/
 .turbo/
 .env
-.midnight-wallet-cache.json
+.midnight-wallet-cache*.json
 batch-deploy-export.json
+deploy_scripts

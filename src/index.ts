@@ -54,6 +54,8 @@ export {
   updatePaymentConfig,
   lockTarget,
   lockPaymentConfig,
+  changeRootEnableSubdomains,
+  changeFieldLimit,
 } from "./operations.js";
 
 // Provider

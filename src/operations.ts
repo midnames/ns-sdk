@@ -237,6 +237,33 @@ export async function updatePaymentConfig(
   );
 }
 
+// ---- Root zone operations ----
+
+export async function changeRootEnableSubdomains(
+  enabled: boolean,
+  providers: ContractProviders<NS.Contract>,
+  options?: OperationOptions,
+): Promise<Result<{ transactionId: string }>> {
+  return withContract(providers, "change root enable subdomains", async (contract) =>
+    txId(await contract.callTx.change_root_enable_subdomains(enabled)),
+    options,
+  );
+}
+
+export async function changeFieldLimit(
+  limit: bigint | null,
+  providers: ContractProviders<NS.Contract>,
+  options?: OperationOptions,
+): Promise<Result<{ transactionId: string }>> {
+  const maybe = limit !== null
+    ? { is_some: true as const, value: limit }
+    : { is_some: false as const, value: 0n };
+  return withContract(providers, "change field limit", async (contract) =>
+    txId(await contract.callTx.change_field_limit(maybe)),
+    options,
+  );
+}
+
 // ---- Lock operations ----
 
 export async function lockTarget(

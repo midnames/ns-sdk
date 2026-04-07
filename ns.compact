@@ -18,6 +18,34 @@ export ledger domain_fields: Map<Uint<64>, Map<Opaque<'string'>, Opaque<'string'
 
 witness domainSecretKey(): Bytes<32>;
 
+export ledger ENABLE_SUBDOMAINS: Boolean;
+
+export ledger FIELD_LIMIT: Maybe<Uint<64>>;
+
+export circuit change_root_enable_subdomains(b: Boolean): [] {
+  ENABLE_SUBDOMAINS = disclose(b);
+}
+export circuit change_field_limit(val: Maybe<Uint<64>>): [] {
+  FIELD_LIMIT = disclose(val);
+}
+
+circuit assert_enabled_to_purchase_subdomains(parent_id: Uint<64>): [] {
+  if (parent_id == ROOT_ZONE_ID) {
+    // ok
+  } else {
+    assert(ENABLE_SUBDOMAINS, "Subdomains are disabled.");
+  }
+}
+
+// For now this should be checked at the end of a circuit to avoid more changes.
+circuit assert_field_limit_not_reached(id: Uint<64>): [] {
+  if (FIELD_LIMIT.is_some) {
+    assert(domain_fields.lookup(disclose(id)).size() < FIELD_LIMIT.value,
+           "Max amount of fields would be exceeded"
+           );
+  }
+}
+
 export enum AddressType {
   ContractAddr,
   ZswapCPKAddr,
@@ -56,11 +84,15 @@ constructor(tld: Opaque<'string'>,
             default_field: Maybe<Opaque<'string'>>,
             payment_config: PaymentConfig,
             owner_address: UserAddress,
-            kvs: Vector<10, Maybe<[Opaque<'string'>, Opaque<'string'>]>>
+            kvs: Vector<10, Maybe<[Opaque<'string'>, Opaque<'string'>]>>,
+            field_limit: Maybe<Uint<64>>,
+            enable_subdomains: Boolean,
             ) {
   ROOT_ZONE_ID = 0;
   TLD = disclose(tld);
   last_id_int.increment(1);
+  FIELD_LIMIT = disclose(field_limit);
+  ENABLE_SUBDOMAINS = disclose(enable_subdomains);
 
   const root_data =
           DomainData { derive_public_key(),
@@ -144,6 +176,9 @@ export circuit create_domain(
                  payment_config: PaymentConfig,
                  kvs: Vector<10, Maybe<[Opaque<'string'>, Opaque<'string'>]>>
                  ): [] {
+
+  assert_enabled_to_purchase_subdomains(disclose(parent_id));
+
   assert(len <= 32, "len must be <= 32");
   assert(len >= 1, "domain name cannot be empty");
 
@@ -285,6 +320,7 @@ export circuit add_domain_field(id: Uint<64>, k: Opaque<'string'>, v: Opaque<'st
     domain_fields.insert(disclose(id), default<Map<Opaque<'string'>, Opaque<'string'>>>);
   }
   domain_fields.lookup(disclose(id)).insert(disclose(k), disclose(v));
+  assert_field_limit_not_reached(id);
 }
 
 export circuit add_multiple_fields(
@@ -300,6 +336,7 @@ export circuit add_multiple_fields(
       domain_fields.lookup(disclose(id)).insert(disclose(kv.value[0]), disclose(kv.value[1]));
     }
   }
+  assert_field_limit_not_reached(id);
 }
 
 export circuit remove_domain_field(id: Uint<64>, k: Opaque<'string'>): [] {

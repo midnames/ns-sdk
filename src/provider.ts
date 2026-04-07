@@ -22,7 +22,7 @@ export const NETWORK_REGISTRY: Record<string, NetworkConfig> = {
   mainnet: {
     indexerUrl: "https://indexer.mainnet.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.mainnet.midnight.network/api/v3/graphql/ws",
-    contractAddress: "", // TODO: set after deployment
+    contractAddress: "83b0d57aba442f92e12b5cdf92642adb9927ccd554a9061b5bd0992fc72596bb",
   },
 };
 

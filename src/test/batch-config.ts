@@ -23,6 +23,8 @@ export interface BatchDeployConfig {
   walletSeed?: string; // hex seed override
   defaults?: DomainSettings; // global defaults for all domains
   rootFields?: [string, string][]; // initial fields for root domain (max 10)
+  fieldLimit?: bigint | null;      // max fields per domain; null = no limit (default)
+  enableSubdomains?: boolean;      // whether subdomain purchasing is allowed (default: true)
   deployCircuits?: string[]; // circuit IDs to include in initial deploy TX; remaining are inserted after via maintenance TXs (default: all — single deploy TX)
   domains: DomainEntry[];
 }

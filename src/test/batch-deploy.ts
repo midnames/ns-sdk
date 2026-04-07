@@ -571,6 +571,8 @@ async function deployNsContract(
   secretKeyHex: string,
   rootFields: [string, string][] = [],
   rootSettings: Required<DomainSettings> = DEFAULT_DOMAIN_SETTINGS,
+  fieldLimit: bigint | null = null,
+  enableSubdomains: boolean = true,
 ) {
   logger.info(`Deploying NS contract for TLD: ${tld}`);
   logger.info(`  coinColor: ${rootSettings.coinColor}`);
@@ -582,7 +584,7 @@ async function deployNsContract(
     compiledContract: nsContractInstance as any,
     privateStateId: "nsPrivateState",
     initialPrivateState: { secretKey: secretKeyHex },
-    args: buildConstructorArgs(tld, coinPublicKeyBytes, ownerAddressBytes, rootFields, rootSettings),
+    args: buildConstructorArgs(tld, coinPublicKeyBytes, ownerAddressBytes, rootFields, rootSettings, fieldLimit, enableSubdomains),
   });
 
   logger.info(
@@ -594,6 +596,7 @@ async function deployNsContract(
 // ─── Partial Deployment ────────────────────────────────────────────────────
 
 const ALL_PROVABLE_CIRCUIT_IDS = [
+  "change_root_enable_subdomains", "change_field_limit",
   "create_domain", "update_target", "update_payment_config",
   "transfer_domain", "add_domain_field", "add_multiple_fields",
   "remove_domain_field", "clear_domain_fields",
@@ -606,6 +609,8 @@ function buildConstructorArgs(
   ownerAddressBytes: Uint8Array,
   rootFields: [string, string][],
   rootSettings: Required<DomainSettings>,
+  fieldLimit: bigint | null = null,
+  enableSubdomains: boolean = true,
 ) {
   const kvs: Array<{ is_some: boolean; value: [string, string] }> = [];
   for (const [key, value] of rootFields.slice(0, 10)) {
@@ -628,6 +633,10 @@ function buildConstructorArgs(
     },
     { bytes: ownerAddressBytes },
     kvs,
+    fieldLimit !== null
+      ? { is_some: true, value: fieldLimit }
+      : { is_some: false, value: 0n },
+    enableSubdomains,
   ];
 }
 
@@ -645,6 +654,8 @@ async function deployNsContractPartial(
   rootFields: [string, string][] = [],
   rootSettings: Required<DomainSettings> = DEFAULT_DOMAIN_SETTINGS,
   deployCircuits: string[] = [],
+  fieldLimit: bigint | null = null,
+  enableSubdomains: boolean = true,
 ): Promise<{ contractAddress: string }> {
   logger.info(`Deploying NS contract (partial) for TLD: ${tld}`);
   logger.info(`  Including ${deployCircuits.length} of ${ALL_PROVABLE_CIRCUIT_IDS.length} circuit VKs in deploy TX`);
@@ -653,7 +664,7 @@ async function deployNsContractPartial(
   }
 
   const signingKey = sampleSigningKey();
-  const args = buildConstructorArgs(tld, coinPublicKeyBytes, ownerAddressBytes, rootFields, rootSettings);
+  const args = buildConstructorArgs(tld, coinPublicKeyBytes, ownerAddressBytes, rootFields, rootSettings, fieldLimit, enableSubdomains);
 
   // Phase A: Run constructor client-side with all VKs to get the correct initial state
   logger.info("Running constructor client-side...");
@@ -995,6 +1006,7 @@ async function batchDeploy(config: BatchDeployConfig): Promise<void> {
         const { contractAddress: partialAddr } = await deployNsContractPartial(
           providers, tld, coinPublicKeyBytes, ownerAddressBytes,
           secretKeyHex, config.rootFields ?? [], rootSettings, deployCircuits,
+          config.fieldLimit ?? null, config.enableSubdomains ?? true,
         );
 
         // Wait for deploy TX to settle
@@ -1026,6 +1038,7 @@ async function batchDeploy(config: BatchDeployConfig): Promise<void> {
         contract = await deployNsContract(
           providers, tld, coinPublicKeyBytes, ownerAddressBytes,
           secretKeyHex, config.rootFields ?? [], rootSettings,
+          config.fieldLimit ?? null, config.enableSubdomains ?? true,
         );
       }
     }
