@@ -14,7 +14,7 @@ export const config: BatchDeployConfig = {
   network: "preprod",
   tld: "night",
   defaults: {
-    coinColor: "0c3b8da78257d90a09b813a63fc3e00493cad1b3783209beb7c0f4a6ad803a59",
+    coinColor: "0000000000000000000000000000000000000000000000000000000000000000",
     costs: { short: 600n, medium: 140n, long: 10n },
     buyEnabled: true,
   },

@@ -1,6 +1,6 @@
 {
   "name": "@midnames/sdk",
-  "version": "2.0.0-rc2",
+  "version": "2.0.0",
   "description": "SDK for midnight.domains",
   "type": "module",
   "main": "dist/index.js",

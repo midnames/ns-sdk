@@ -9,15 +9,10 @@ export interface NetworkConfig {
 }
 
 export const NETWORK_REGISTRY: Record<string, NetworkConfig> = {
-  preview: {
-    indexerUrl: "https://indexer.preview.midnight.network/api/v3/graphql",
-    indexerWsUrl: "wss://indexer.preview.midnight.network/api/v3/graphql/ws",
-    contractAddress: "", // TODO: set after deployment
-  },
   preprod: {
     indexerUrl: "https://indexer.preprod.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.preprod.midnight.network/api/v3/graphql/ws",
-    contractAddress: "cd74a2e9765e1f56e4ada5e2eaea37040212456c386e7f0e7671bcde23577c9c",
+    contractAddress: "0e6ff3e64e69fcaf513c13f4f66bfe66ab233e554d5c9fef4f2b16795df2e398",
   },
   mainnet: {
     indexerUrl: "https://indexer.mainnet.midnight.network/api/v3/graphql",
