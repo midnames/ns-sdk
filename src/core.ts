@@ -1,6 +1,9 @@
 import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
 import { getNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { ShieldedCoinPublicKey } from "@midnight-ntwrk/wallet-sdk-address-format";
+// Imported rather than taken from the global scope so the SDK works in browsers,
+// where `Buffer` is not defined. Node resolves this to its built-in module.
+import { Buffer } from "buffer";
 import { ledger, AddressType } from "./contract.js";
 import type { Ledger } from "./managed/contract/index.js";
 import { formatContractAddress, bytesToHex, formatUnshieldedAddress } from "./utils/address.js";

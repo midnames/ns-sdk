@@ -1,3 +1,5 @@
+import { hexToBytes } from "./utils/address.js";
+
 export type DNSPrivateState = {
   secretKey: string; // hex-encoded 32 bytes
 };
@@ -9,6 +11,6 @@ export const witnesses = {
     privateState: DNSPrivateState;
   }): [DNSPrivateState, Uint8Array] => [
     privateState,
-    new Uint8Array(Buffer.from(privateState.secretKey, "hex")),
+    hexToBytes(privateState.secretKey),
   ],
 };
