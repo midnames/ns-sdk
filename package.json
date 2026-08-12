@@ -1,6 +1,6 @@
 {
   "name": "@midnames/sdk",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "SDK for midnight.domains",
   "type": "module",
   "main": "dist/index.js",
@@ -47,7 +47,7 @@
   "scripts": {
     "compact": "compact compile +0.30.0 ns.compact src/managed",
     "compact:skip-zk": "compact compile +0.30.0 --skip-zk ns.compact src/managed",
-    "build": "rm -rf dist && tsc --project tsconfig.build.json && mkdir -p ./dist/managed/keys && mkdir -p ./dist/managed/contract && cp ./src/managed/contract/index.js ./src/managed/contract/index.d.ts ./dist/managed/contract/ && cp -Rf ./src/managed/compiler ./dist/managed/compiler && cp ./src/managed/keys/*.prover ./dist/managed/keys/ && cp ./src/styles.css ./dist/styles.css && cp ./src/holographic-card.css ./dist/holographic-card.css",
+    "build": "rm -rf dist && tsc --project tsconfig.build.json && mkdir -p ./dist/managed/keys && mkdir -p ./dist/managed/zkir && mkdir -p ./dist/managed/contract && cp ./src/managed/contract/index.js ./src/managed/contract/index.d.ts ./dist/managed/contract/ && cp -Rf ./src/managed/compiler ./dist/managed/compiler && cp ./src/managed/keys/*.prover ./dist/managed/keys/ && cp ./src/managed/keys/*.verifier ./dist/managed/keys/ && cp ./src/managed/zkir/*.bzkir ./dist/managed/zkir/ && cp ./src/styles.css ./dist/styles.css && cp ./src/holographic-card.css ./dist/holographic-card.css",
     "typecheck": "tsc --project tsconfig.build.json --noEmit",
     "deploy": "bun run src/test/batch-deploy.ts",
     "resolve": "bun run resolve.ts",
